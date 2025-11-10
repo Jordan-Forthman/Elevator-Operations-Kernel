@@ -1,4 +1,4 @@
-obj-m += elevator.o
+obj-m += src/elevator.o
 
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
