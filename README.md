@@ -5,9 +5,7 @@ supporting operations such as starting, stopping, and processing passenger reque
 /proc/elevator entry to display essential elevator status and information. The module ensures
 efficient management of concurrency and synchronization within the kernel environment.
  
-## Author
-- Jordan Forthman: jf24b@fsu.edu
- 
+
 ## File Listing
 ```
 ~/part1:
@@ -67,13 +65,3 @@ This will compile `elevator.c` into `elevator.ko`
    sudo rmmod elevator
    ```
 
-### Work Log
-
-### Jordan Forthman
-| Date          | Work Completed / Notes |
-|------------|------------------------|
-| 2025-10-03| Set up project in Canvas and GitHub Classroom  |
-| 2025-10-05| Created rough draft workflow for project|
-| 2025-10-07| Completed part 1|
-| 2025-10-18| Completed part 2|
-| 2025-11-01| Completed part 3|
