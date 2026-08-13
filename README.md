@@ -1,6 +1,6 @@
-Project 2
- 
-The project develops a kernel module that implements a pet elevator with scheduling capabilities,
+## Elevator Operations Kernel
+
+Developed a kernel module that implements a pet elevator with scheduling capabilities,
 supporting operations such as starting, stopping, and processing passenger requests. It includes a
 /proc/elevator entry to display essential elevator status and information. The module ensures
 efficient management of concurrency and synchronization within the kernel environment.
