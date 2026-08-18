@@ -11,14 +11,14 @@
 Module.symvers
 modules.order
 
-# part1: compiled programs and generated traces (make -C part1 trace)
-part1/empty
-part1/part1
+# syscall-tracing: compiled programs and generated traces
+syscall-tracing/empty
+syscall-tracing/part1
 *.trace
 
-# part3: compiled user-space tools (make -C part3 tools)
-part3/tools/producer
-part3/tools/consumer
+# elevator-module: compiled user-space tools
+elevator-module/tools/producer
+elevator-module/tools/consumer
 
 # Editors / OS
 .vs/

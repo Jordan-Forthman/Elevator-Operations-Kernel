@@ -1,10 +1,10 @@
 # Adding the elevator system calls to the kernel
 
 The elevator exposes three custom system calls. This document covers the build
-that uses them — `make SYSCALLS=1`, which requires a kernel patched and
-rebuilt as described below.
+that uses them, `make SYSCALLS=1`, which requires a kernel patched and rebuilt
+as described below.
 
-If you only want to see the elevator run, you do not need any of this: the
+If you only want to see the elevator run, you do not need any of this. The
 default build is self-contained and is driven through `/proc/elevator_ctl`.
 See the README's quickstart.
 
@@ -29,11 +29,11 @@ user space          kernel image                      elevator.ko
 ./consumer  ──►  sys_stop_elevator  (550)  ──►  STUB_stop_elevator  ──► my_stop_elevator()
 ```
 
-`syscalls.c` (in `part3/src/`) defines the pointers, exports them with
+`syscalls.c` (in `elevator-module/src/`) defines the pointers, exports them with
 `EXPORT_SYMBOL`, and returns `-ENOSYS` while they are `NULL`. `elevator_init()`
-assigns them on load; `elevator_exit()` clears them on unload. That indirection
-is what lets the elevator be rebuilt and reloaded without rebuilding the kernel
-each time.
+assigns them on load, and `elevator_exit()` clears them on unload. That
+indirection is what lets the elevator be rebuilt and reloaded without rebuilding
+the kernel each time.
 
 Because the pointers are defined in the kernel image, a `SYSCALLS=1` build
 against an unpatched kernel fails at the modpost stage with:
@@ -47,7 +47,7 @@ broken.
 
 ## Patching the kernel
 
-Tested against the 6.10–6.16 series. Adjust paths if your tree differs.
+Tested against the 6.10 to 6.16 series. Adjust paths if your tree differs.
 
 **1. Get the source and work from a symlink**
 
@@ -60,16 +60,16 @@ cd ~/linux-<version>
 
 **2. Add the syscall implementations**
 
-Copy `part3/src/syscalls.c` into a new `syscalls/` directory in the kernel
-tree, and add a Makefile beside it:
+Copy `elevator-module/src/syscalls.c` into a new `syscalls/` directory in the
+kernel tree, and add a Makefile beside it:
 
 ```bash
 mkdir -p syscalls
-cp /path/to/repo/part3/src/syscalls.c syscalls/
+cp /path/to/repo/elevator-module/src/syscalls.c syscalls/
 printf 'obj-y := syscalls.o\n' > syscalls/Makefile
 ```
 
-**3. Build the new directory** — append `syscalls/` to `core-y` in the
+**3. Build the new directory** by appending `syscalls/` to `core-y` in the
 top-level kernel `Makefile`:
 
 ```make
@@ -77,7 +77,7 @@ core-y += kernel/ mm/ fs/ ipc/ security/ crypto/ syscalls/
 ```
 
 **4. Register the numbers** in `arch/x86/entry/syscalls/syscall_64.tbl`
-(older trees: `arch/x86/syscalls/syscall_64.tbl`):
+(older trees use `arch/x86/syscalls/syscall_64.tbl`):
 
 ```
 548	common	start_elevator		sys_start_elevator
@@ -109,7 +109,7 @@ sudo make install
 sudo reboot
 ```
 
-This takes a while — budget an hour or more on a laptop.
+This takes a while, so budget an hour or more on a laptop.
 
 **7. Confirm the running kernel and the syscalls**
 
@@ -118,10 +118,10 @@ uname -r          # should report the version you just built
 ```
 
 The syscalls return `-ENOSYS` until `elevator.ko` is loaded, which is the
-correct behaviour — the numbers exist, but nothing is hooked to them yet:
+correct behaviour. The numbers exist, but nothing is hooked to them yet:
 
 ```bash
-cd part3
+cd elevator-module
 make SYSCALLS=1
 make tools
 sudo insmod src/elevator.ko
@@ -129,5 +129,5 @@ sudo insmod src/elevator.ko
 ```
 
 If `consumer` reports `syscall 548 unavailable`, the kernel running is not the
-patched one — check `uname -r` against the version you installed, and confirm
+patched one. Check `uname -r` against the version you installed, and confirm
 GRUB booted the right entry.

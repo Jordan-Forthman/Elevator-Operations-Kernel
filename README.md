@@ -1,7 +1,7 @@
 # Elevator Operations Kernel
 
 A Linux kernel module implementing a scheduled elevator, written in C against
-the kernel API — a kthread for the control loop, mutexes and wait queues for
+the kernel API: a kthread for the control loop, mutexes and wait queues for
 synchronization, `linux/list.h` for the queues, and `kmalloc` for per-passenger
 allocation. State is published to user space through `/proc`.
 
@@ -25,7 +25,7 @@ git clone https://github.com/Jordan-Forthman/Elevator-Operations-Kernel.git
 cd Elevator-Operations-Kernel
 make
 
-cd part3
+cd elevator-module
 sudo insmod src/elevator.ko          # load the module
 watch -n1 cat /proc/elevator         # terminal 1: live status
 
@@ -52,7 +52,7 @@ Number of pets waiting: 4
 Number of pets serviced: 27
 ```
 
-Each pet shows as two characters — type and destination floor.
+Each pet shows as two characters, type and destination floor.
 `C`hihuahua 3 lb, `P`ug 14 lb, Pug`h`uahua 10 lb, `D`achshund 16 lb.
 
 ## Two build modes
@@ -60,18 +60,18 @@ Each pet shows as two characters — type and destination floor.
 The elevator is driven by three operations: start, stop, and issue a request.
 How user space reaches them depends on how you build.
 
-**Default — stock kernel.** The module is self-contained and exposes a
+**Default, stock kernel.** The module is self-contained and exposes a
 write-only `/proc/elevator_ctl`. Nothing beyond kernel headers is required,
 which is what the quickstart uses. The control file takes the three operations
 directly:
 
 ```bash
 echo "start"         | sudo tee /proc/elevator_ctl
-echo "request 1 4 2" | sudo tee /proc/elevator_ctl   # floor 1 -> 4, Pughuahua
+echo "request 1 4 2" | sudo tee /proc/elevator_ctl   # floor 1 to 4, Pughuahua
 echo "stop"          | sudo tee /proc/elevator_ctl
 ```
 
-**`SYSCALLS=1` — patched kernel.** The design the project targets: three real
+**`SYSCALLS=1`, patched kernel.** The design the project targets: three real
 system calls compiled into the kernel image, which the module hooks on load
 through exported function pointers.
 
@@ -81,36 +81,36 @@ through exported function pointers.
 | 549 | `int issue_request(int start_floor, int destination_floor, int type)` |
 | 550 | `int stop_elevator(void)` |
 
-This requires patching and rebuilding the kernel — see
+This requires patching and rebuilding the kernel, covered in
 [`docs/kernel-syscalls.md`](docs/kernel-syscalls.md). `producer` and `consumer`
 call the syscalls when they exist and fall back to `/proc/elevator_ctl` when
-they don't, so the same binaries drive either build.
+they do not, so the same binaries drive either build.
 
-The elevator logic is identical in both modes; only the entry point differs.
+The elevator logic is identical in both modes. Only the entry point differs.
 
 ## How it works
 
-**Scheduling — LOOK.** The control thread keeps travelling in one direction
+**Scheduling with LOOK.** The control thread keeps travelling in one direction
 while any floor ahead still needs service, then reverses. Unlike SCAN it never
-runs to the end of the building for no reason, and unlike FIFO it doesn't
+runs to the end of the building for no reason, and unlike FIFO it does not
 re-cross floors it just passed. A floor "needs service" if a pet is waiting
-there *or* an onboard pet is bound for it — that second half is what keeps
+there *or* an onboard pet is bound for it, and that second half is what keeps
 deliveries from being skipped mid-sweep.
 
-**Concurrency.** All shared state — the five per-floor queues, the onboard
-list, position, and counters — sits behind one mutex. The control loop runs in
-a kthread, `issue_request` can arrive on any CPU from any process, and `/proc`
-reads happen concurrently with both. The thread never sleeps holding the lock:
-it releases before `msleep` and before waiting on the queue.
+**Concurrency.** All shared state, meaning the five per-floor queues, the
+onboard list, position, and counters, sits behind one mutex. The control loop
+runs in a kthread, `issue_request` can arrive on any CPU from any process, and
+`/proc` reads happen concurrently with both. The thread never sleeps holding the
+lock: it releases before `msleep` and before waiting on the queue.
 
 **Idling.** With no work the thread blocks on a wait queue rather than polling,
 and a new request wakes it. An idle elevator costs no CPU.
 
-**Timing.** 2.0 s to move a floor, 1.0 s to load or unload — the delays that
-make the simulation observable under `watch`.
+**Timing.** 2.0 s to move a floor, 1.0 s to load or unload, the delays that make
+the simulation observable under `watch`.
 
 **Loading rules.** Pets board FIFO, and boarding stops at the first one that
-doesn't fit rather than skipping ahead to a smaller one — head-of-line
+does not fit rather than skipping ahead to a smaller one. That is head-of-line
 blocking, which is the honest reading of a queue. Unloading happens before
 loading at the same stop.
 
@@ -121,21 +121,22 @@ stops the thread, and frees every outstanding allocation.
 ## Layout
 
 ```
-part1/          system-call tracing: five syscalls verified against a baseline
-part2/src/      my_timer.c   — /proc/timer, current and elapsed time
-part3/src/      elevator.c   — the elevator module
-                syscalls.c   — syscall definitions for the patched-kernel build
-part3/tools/    producer.c, consumer.c — user-space drivers
-docs/           kernel patching instructions
+syscall-tracing/     five syscalls verified against an empty baseline
+timer-module/src/    my_timer.c   /proc/timer, current and elapsed time
+elevator-module/src/ elevator.c   the elevator module
+                     syscalls.c   syscall definitions for the patched build
+elevator-module/tools/
+                     producer.c, consumer.c   user-space drivers
+docs/                kernel patching instructions
 ```
 
-### part1 — system-call tracing
+### syscall-tracing
 
 `part1.c` makes exactly five syscalls more than an empty program, verified by
 diffing their traces:
 
 ```bash
-cd part1
+cd syscall-tracing
 make verify
 ```
 
@@ -151,23 +152,23 @@ the added calls are:
   write
 ```
 
-Traces are generated rather than committed — `make trace` rebuilds them.
+Traces are generated rather than committed. `make trace` rebuilds them.
 
-### part2 — timer module
+### timer-module
 
 ```bash
-cd part2 && make
+cd timer-module && make
 sudo insmod src/my_timer.ko
 cat /proc/timer      # current time
 sleep 1
-cat /proc/timer      # current time + elapsed since the last read
+cat /proc/timer      # current time plus elapsed since the last read
 sudo rmmod my_timer
 ```
 
 ## Notes
 
 Built for COP4610 (Operating Systems). The elevator itself is
-`part3/src/elevator.c`.
+`elevator-module/src/elevator.c`.
 
 Since the coursework version this repo has been updated so it builds and runs
 on an unmodified kernel, the user-space drivers have been written against the
