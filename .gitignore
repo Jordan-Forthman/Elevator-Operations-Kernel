@@ -1,0 +1,28 @@
+# Kernel module build output
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.symvers
+*.order
+.*.cmd
+.tmp_versions/
+Module.symvers
+modules.order
+
+# part1: compiled programs and generated traces (make -C part1 trace)
+part1/empty
+part1/part1
+*.trace
+
+# part3: compiled user-space tools (make -C part3 tools)
+part3/tools/producer
+part3/tools/consumer
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store

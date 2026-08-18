@@ -11,10 +11,24 @@
 #include <linux/errno.h>
 #include <linux/types.h>
 
+/*
+ * Two build modes (see the Makefile):
+ *
+ *   ELEVATOR_USE_SYSCALLS defined  -- the module hooks the custom syscalls
+ *       548/549/550. This is the design the project targets, and it requires a
+ *       kernel patched to define and export the STUB_* pointers below.
+ *
+ *   default                        -- self-contained build that loads on a
+ *       stock kernel. The same handlers are driven through /proc/elevator_ctl
+ *       instead, so the elevator can be demonstrated without rebuilding a
+ *       kernel. The elevator logic itself is identical in both modes.
+ */
+#ifdef ELEVATOR_USE_SYSCALLS
 /*hooks system calls, module assigns its implementation*/
 extern int (*STUB_start_elevator)(void);
 extern int (*STUB_issue_request)(int, int, int);
 extern int (*STUB_stop_elevator)(void);
+#endif
 
 // states
 enum state_t { OFFLINE, IDLE, UP, DOWN, LOADING };
@@ -170,12 +184,23 @@ static int elevator_thread_fn(void *data) {
             elevator_state = OFFLINE; 	//signal completion
             work_to_do = false;		//clear flag
             mutex_unlock(&elev_lock);	//UNLOCK
-            break; /* exit thread loop */
+
+            /*
+             * Park instead of returning. kthread_stop() in elevator_exit()
+             * requires the task to still be alive -- if this thread returned
+             * on its own, the task_struct could be freed before the stop
+             * arrives. Parking here also lets a later start_elevator() reuse
+             * this thread rather than leaking the previous one.
+             */
+            wait_event_interruptible(elev_wait,
+                                     kthread_should_stop() ||
+                                     READ_ONCE(elevator_state) != OFFLINE);
+            continue;
         }
 
         bool loading = can_unload();	//check if can unload pets at the current floor
 
-        /* stop signal means we don't load new pets */
+        /* stop signal means no new pets are loaded */
         bool boarding = !is_deactivating && can_load();
 
         /* STATE: LOADING (Load/Unload) */
@@ -220,6 +245,8 @@ static int elevator_thread_fn(void *data) {
 /* ---------- syscall stubs ---------- */
 /* activate elevator if OFFLINE */
 static int my_start_elevator(void) {
+    bool need_thread;
+
     mutex_lock(&elev_lock);	//LOCKS
 
     /* UNLOCK and return if already active */
@@ -239,13 +266,23 @@ static int my_start_elevator(void) {
     /* check if work was added *before* elevator started */
     work_to_do = has_pending();
 
+    /* a previous run leaves the thread parked; reuse it rather than spawn */
+    need_thread = (elev_thread == NULL);
+
     mutex_unlock(&elev_lock);	// UNLOCK
+
+    if (!need_thread) {
+        /* wake the parked thread: it re-checks elevator_state and resumes */
+        wake_up_interruptible(&elev_wait);
+        return 0;
+    }
 
     /* start thread; launch simulation */
     elev_thread = kthread_run(elevator_thread_fn, NULL, "pet_elevator");
 
     /* if elevator fails to launch, reset state and return w/ error */
     if (IS_ERR(elev_thread)) {
+        elev_thread = NULL;		// don't leave an ERR_PTR behind
         mutex_lock(&elev_lock);		// LOCK
         elevator_state = OFFLINE;	// revert to offline
         mutex_unlock(&elev_lock);	// UNLOCK
@@ -302,8 +339,64 @@ static int my_stop_elevator(void) {
     return 0;
 }
 
+/* ---------- /proc/elevator_ctl (stock-kernel control path) ---------- */
+#ifndef ELEVATOR_USE_SYSCALLS
+/*
+ * Without the patched kernel there are no syscalls to call, so expose the same
+ * three operations as a write-only proc file:
+ *
+ *   echo "start"              > /proc/elevator_ctl
+ *   echo "stop"               > /proc/elevator_ctl
+ *   echo "request 1 4 2"      > /proc/elevator_ctl   (start, dest, type)
+ *
+ * These call the identical handlers the syscalls hook, so behaviour does not
+ * differ between the two builds.
+ */
+#define CTL_BUF_SIZE 64
+static struct proc_dir_entry *proc_ctl;
+
+static ssize_t ctl_write(struct file *fp, const char __user *ubuf,
+                         size_t len, loff_t *offs)
+{
+    char kbuf[CTL_BUF_SIZE];
+    int start, dest, type;
+
+    if (len == 0 || len >= CTL_BUF_SIZE)
+        return -EINVAL;
+    if (copy_from_user(kbuf, ubuf, len))
+        return -EFAULT;
+    kbuf[len] = '\0';
+
+    /* trim trailing newline/whitespace left by echo */
+    while (len > 0 && (kbuf[len - 1] == '\n' || kbuf[len - 1] == '\r' ||
+                       kbuf[len - 1] == ' '  || kbuf[len - 1] == '\t'))
+        kbuf[--len] = '\0';
+
+    if (!strcmp(kbuf, "start")) {
+        my_start_elevator();
+    } else if (!strcmp(kbuf, "stop")) {
+        my_stop_elevator();
+    } else if (sscanf(kbuf, "request %d %d %d", &start, &dest, &type) == 3) {
+        if (my_issue_request(start, dest, type))
+            return -EINVAL;		// rejected by the same validation
+    } else {
+        return -EINVAL;
+    }
+
+    return len;
+}
+
+static const struct proc_ops elevator_ctl_pops = {
+    .proc_write = ctl_write,
+};
+#endif /* !ELEVATOR_USE_SYSCALLS */
+
 /* ---------- /proc/elevator ---------- */
-#define PROC_BUF_SIZE 2048
+/*
+ * The project spec allows the proc output to reach 10,000 characters; size the
+ * buffer for that rather than silently truncating a busy building.
+ */
+#define PROC_BUF_SIZE 10240
 /* reads and formats elevator status for /proc */
 static ssize_t proc_read(struct file *fp, char __user *ubuf,
                          size_t size, loff_t *offs)
@@ -407,10 +500,20 @@ static int __init elevator_init(void)
         return -ENOMEM;
     }
 
+#ifdef ELEVATOR_USE_SYSCALLS
     /* assign hooks */
     STUB_start_elevator = my_start_elevator;
     STUB_issue_request   = my_issue_request;
     STUB_stop_elevator   = my_stop_elevator;
+#else
+    /* no patched kernel: drive the same handlers through a proc file */
+    proc_ctl = proc_create("elevator_ctl", 0200, NULL, &elevator_ctl_pops);
+    if (!proc_ctl) {
+        pr_err("elevator: failed to create /proc/elevator_ctl\n");
+        proc_remove(proc_file);
+        return -ENOMEM;
+    }
+#endif
 
     return 0;	// module loaded successfully
 }
@@ -421,10 +524,14 @@ static void __exit elevator_exit(void)
     int i;
     struct pet *p, *tmp;
 
+#ifdef ELEVATOR_USE_SYSCALLS
     /* reset function pointers when exiting */
     STUB_start_elevator = NULL;
     STUB_issue_request   = NULL;
     STUB_stop_elevator   = NULL;
+#else
+    proc_remove(proc_ctl);		// stop accepting commands first
+#endif
 
     proc_remove(proc_file);		// remove proc
 
@@ -466,5 +573,7 @@ static void __exit elevator_exit(void)
 }
 
 MODULE_LICENSE("GPL");
-module_init(elevator_init);	// regsiter init, called on load
+MODULE_AUTHOR("Jordan Forthman");
+MODULE_DESCRIPTION("Pet elevator scheduler using LOOK, kthreads and mutexes");
+module_init(elevator_init);	// register init, called on load
 module_exit(elevator_exit);	// register exit, called on unload
