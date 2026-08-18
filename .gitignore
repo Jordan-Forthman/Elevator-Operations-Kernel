@@ -13,7 +13,7 @@ modules.order
 
 # syscall-tracing: compiled programs and generated traces
 syscall-tracing/empty
-syscall-tracing/part1
+syscall-tracing/traced
 *.trace
 
 # elevator-module: compiled user-space tools

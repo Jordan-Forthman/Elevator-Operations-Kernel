@@ -132,7 +132,7 @@ docs/                kernel patching instructions
 
 ### syscall-tracing
 
-`part1.c` makes exactly five syscalls more than an empty program, verified by
+`traced.c` makes exactly five syscalls more than an empty program, verified by
 diffing their traces:
 
 ```bash
@@ -141,9 +141,9 @@ make verify
 ```
 
 ```
-empty.trace: 31 syscalls
-part1.trace: 36 syscalls
-added:       5
+empty.trace:  31 syscalls
+traced.trace: 36 syscalls
+added:        5
 the added calls are:
   clock_nanosleep
   getpid

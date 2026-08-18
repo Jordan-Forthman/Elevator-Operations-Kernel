@@ -1,6 +1,6 @@
 /*
- * part1 -- makes exactly five system calls beyond the empty baseline, so that
- * diffing part1.trace against empty.trace shows precisely those five:
+ * traced -- makes exactly five system calls beyond the empty baseline, so that
+ * diffing traced.trace against empty.trace shows precisely those five:
  *
  *     getpid, getppid, nanosleep (via sleep), write, read
  *
